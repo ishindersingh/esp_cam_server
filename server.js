@@ -1,39 +1,30 @@
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
-const path = require('path');
-const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ path: '/cam' });
 
-// Serve index.html at /iot
-app.get('/iot', (req, res) => {
-  const filePath = path.join(__dirname, 'index.html');
-  console.log('Attempting to serve:', filePath);
-  if (fs.existsSync(filePath)) {
-    res.sendFile(filePath);
-  } else {
-    console.error('File not found:', filePath);
-    res.status(404).send('Error: index.html not found');
-  }
+app.get('/', (req, res) => {
+  res.send('WebSocket server for ESP32-CAM');
 });
 
-// WebSocket connection handling
 wss.on('connection', (ws) => {
-  console.log('Client connected');
+  console.log('Client connected:', ws._socket.remoteAddress);
 
-  ws.on('message', (data) => {
-    if (Buffer.isBuffer(data)) {
-      console.log(`Received frame: ${data.length} bytes`);
+  ws.on('message', (data, isBinary) => {
+    if (isBinary && Buffer.isBuffer(data)) {
+      console.log(`Broadcasting frame: ${data.length} bytes`);
       wss.clients.forEach((client) => {
         if (client !== ws && client.readyState === WebSocket.OPEN) {
-          client.send(data, { binary: true });
+          client.send(data, { binary: true }, (err) => {
+            if (err) console.error('Send error:', err);
+          });
         }
       });
     } else {
-      console.log('Received non-binary data:', data.toString());
+      console.log('Non-binary data:', data.toString());
     }
   });
 
@@ -41,13 +32,12 @@ wss.on('connection', (ws) => {
     console.log('Client disconnected');
   });
 
-  ws.on('error', (error) => {
-    console.error('WebSocket error:', error);
+  ws.on('error', (err) => {
+    console.error('WebSocket error:', err);
   });
 });
 
-// Start the server
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server on port ${PORT}`);
 });
