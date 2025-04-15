@@ -4,7 +4,7 @@ const WebSocket = require('ws');
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ path: '/cam' });
+const wss = new WebSocket.Server({ server, path: '/cam' });
 
 app.get('/', (req, res) => {
   res.send('WebSocket server for ESP32-CAM');
