@@ -1,7 +1,6 @@
 {
-  "name": "esp32-cam-streaming",
+  "name": "esp32-cam-stream",
   "version": "1.0.0",
-  "description": "Node.js WebSocket server for ESP32-CAM video streaming",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
