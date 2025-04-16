@@ -1,127 +1,83 @@
 const express = require('express');
-const http = require('http');
 const WebSocket = require('ws');
+const http = require('http');
 const path = require('path');
-const fs = require('fs');
 
-// Create Express app
 const app = express();
 const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
-// Create WebSocket server
-const wss = new WebSocket.Server({ 
-  server: server, 
-  path: '/cam',
-  perMessageDeflate: false // Disable compression for binary image data
-});
-
-// Serve static files from public directory
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Serve the HTML viewer page
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+const PORT = process.env.PORT || 3000;
 
 // Store connected clients
-const clients = new Set();
-let lastImageBuffer = null;
-let cameraConnected = false;
+let pythonClient = null;
+let webClients = new Set();
 
-// WebSocket server event handlers
-wss.on('connection', (ws, req) => {
-  const ip = req.socket.remoteAddress;
-  console.log(`Client connected: ${ip}`);
-  
-  // Add the client to our set
-  clients.add(ws);
-  
-  // Send last frame immediately if available
-  if (lastImageBuffer && ws !== clients.values().next().value) {
-    ws.send(lastImageBuffer, { binary: true }, (err) => {
-      if (err) console.error('Error sending cached frame:', err);
-    });
-  }
-  
-  // Handle incoming messages
-  ws.on('message', (data, isBinary) => {
-    // If this is binary data and the sender is the first client (ESP32-CAM)
-    if (isBinary && ws === clients.values().next().value) {
-      // First client is assumed to be the ESP32-CAM
-      if (!cameraConnected) {
-        console.log('ESP32-CAM connected and sending frames');
-        cameraConnected = true;
+// Serve static files (webpage)
+app.use(express.static(path.join(__dirname, 'public')));
+
+// WebSocket connection handling
+wss.on('connection', (ws) => {
+  console.log('New client connected');
+
+  ws.on('message', (message) => {
+    try {
+      // Handle binary data (video frames)
+      if (Buffer.isBuffer(message)) {
+        webClients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(message, { binary: true });
+          }
+        });
+        return;
       }
-      
-      // Store the latest frame
-      lastImageBuffer = data;
-      
-      // Log frame size periodically (not every frame)
-      if (Math.random() < 0.05) { // Log about 5% of frames
-        console.log(`Received frame: ${data.length} bytes`);
+
+      // Handle JSON data
+      const data = JSON.parse(message);
+
+      // Python client identification
+      if (data.type === 'python') {
+        pythonClient = ws;
+        console.log('Python backend connected');
+      } else if (data.type === 'web') {
+        webClients.add(ws);
+        console.log('Web client connected');
       }
-      
-      // Broadcast to all other clients (viewers)
-      let viewerCount = 0;
-      clients.forEach((client) => {
-        if (client !== ws && client.readyState === WebSocket.OPEN) {
-          client.send(data, { binary: true }, (err) => {
-            if (err) console.error('Error broadcasting frame:', err);
-          });
-          viewerCount++;
-        }
-      });
-      
-      // Log active viewers periodically
-      if (Math.random() < 0.01) { // Log less frequently
-        console.log(`Active viewers: ${viewerCount}`);
+
+      // Servo angle from web client
+      if (data.type === 'servo' && pythonClient) {
+        pythonClient.send(JSON.stringify({ type: 'servo', angle: data.angle }));
       }
-    } 
-    // Handle text commands from viewers
-    else if (!isBinary) {
-      const command = data.toString();
-      console.log(`Received command: ${command}`);
-      
-      // Forward commands to the ESP32-CAM (first client)
-      const cameraClient = clients.values().next().value;
-      if (cameraClient && cameraClient.readyState === WebSocket.OPEN) {
-        cameraClient.send(command);
-        console.log(`Forwarded command to ESP32-CAM: ${command}`);
+
+      // Broadcast distance data from Python to web clients
+      if (data.type === 'distance') {
+        webClients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({ type: 'distance', distance: data.distance }));
+          }
+        });
       }
+    } catch (error) {
+      console.error('Error processing message:', error);
     }
   });
-  
-  // Handle client disconnection
+
   ws.on('close', () => {
-    console.log(`Client disconnected: ${ip}`);
-    clients.delete(ws);
-    
-    // Check if the camera disconnected
-    if (ws === clients.values().next().value) {
-      console.log('ESP32-CAM disconnected');
-      cameraConnected = false;
+    if (ws === pythonClient) {
+      pythonClient = null;
+      console.log('Python backend disconnected');
+    } else {
+      webClients.delete(ws);
+      console.log('Web client disconnected');
     }
   });
-  
-  // Handle errors
-  ws.on('error', (err) => {
-    console.error(`WebSocket error for ${ip}:`, err);
-    clients.delete(ws);
+
+  ws.on('error', (error) => {
+    console.error('WebSocket error:', error);
   });
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    cameraConnected: cameraConnected,
-    viewers: clients.size - (cameraConnected ? 1 : 0),
-    uptime: process.uptime()
-  });
-});
-
-// Start the server
-const PORT = process.env.PORT || 3000;
+// Start server
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
