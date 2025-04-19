@@ -1,13 +1,13 @@
 {
-  "name": "servo-control-server",
+  "name": "esp32-cam-server",
   "version": "1.0.0",
-  "description": "Servo control server with video stream",
+  "description": "ESP32-CAM video streaming and control",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "ws": "^8.14.2"
+    "ws": "^8.13.0"
   }
 }
