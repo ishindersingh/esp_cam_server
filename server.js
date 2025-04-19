@@ -1,23 +1,27 @@
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
-const path = require('path');
+const cors = require('cors');
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// Store latest video frame and distance
+// Store latest video frame, distance, and servo angle
 let latestFrame = null;
 let latestDistance = '0.0';
 let latestServoAngle = 90;
 
-// Middleware to parse URL-encoded data
+// Enable CORS for Netlify domain (replace with your Netlify URL)
+app.use(cors({
+  origin: 'https://ishinders.me/espcam', // Update with your Netlify URL
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type']
+}));
+
+// Middleware to parse URL-encoded and raw data
 app.use(express.urlencoded({ extended: true }));
 app.use(express.raw({ type: 'image/jpeg', limit: '10mb' }));
-
-// Serve static files (webpage)
-app.use(express.static(path.join(__dirname, 'public')));
 
 // Handle video frame from ESP32-CAM
 app.post('/stream', (req, res) => {
@@ -59,18 +63,14 @@ app.get('/servo', (req, res) => {
     latestServoAngle = angle;
     res.status(200).send(String(angle));
   } else {
-    res.status(400).send('Invalid angle');
+    // Allow ESP32-CAM to fetch latest angle without query
+    res.status(200).send(String(latestServoAngle));
   }
 });
 
-// Serve servo angle to ESP32-CAM
-app.get('/servo', (req, res) => {
-  res.status(200).send(String(latestServoAngle));
-});
-
-// Serve webpage
+// Health check endpoint
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.status(200).send('ESP32-CAM Server Running');
 });
 
 const PORT = process.env.PORT || 3000;
